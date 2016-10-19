@@ -35,6 +35,25 @@ try:
     from yaml import CDumper as Dumper
 except ImportError:
     from yaml import Loader, Dumper
+import traceback
+import logging
+from logging.handlers import RotatingFileHandler
+
+def defineWatcherDirectory():
+    return os.path.expanduser('~') + '/.watcher'
+
+log_file = os.path.join(defineWatcherDirectory(), 'temm.log')
+handler = RotatingFileHandler(log_file,
+                              maxBytes=1000000,
+                              backupCount=7)
+
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
+handler.setFormatter(formatter)
+
+logger = logging.getLogger("Rotating Log")
+logger.setLevel(logging.INFO)
+logger.addHandler(handler)
+#logger.addHandler(logging.StreamHandler())
 
 class Daemon:
     """
@@ -174,6 +193,7 @@ class EventHandler(pyinotify.ProcessEvent):
         self.move_map = {}
 
     def runCommand(self, event, ignore_cookie=True):
+        #traceback.print_stack()
         t = Template(self.command)
         sub_regex = self.root
 
@@ -209,9 +229,12 @@ class EventHandler(pyinotify.ProcessEvent):
 
         #try the command
         try:
-            subprocess.call(shlex.split(command))
+            if not os.path.isdir(event.pathname):
+                logger.info('Running command: ' + str(command))
+                subprocess.call(shlex.split(command))
         except OSError, err:
-            print "Failed to run command '%s' %s" % (command, str(err))
+            #print "Failed to run command '%s' %s" % (command, str(err))
+            logger.error("Failed to run command '%s' %s" % (command, str(err)))
 
         #handle recursive watching of directories
         if self.recursive and os.path.isdir(event.pathname):
@@ -236,7 +259,10 @@ class EventHandler(pyinotify.ProcessEvent):
 
     def process_IN_CLOSE_WRITE(self, event):
         print "Close write: ", event.pathname
-        self.runCommand(event)
+        logger.info("Close write: " + event.pathname)
+        if os.path.splitext(event.pathname)[1] == '.txt':
+            print 'Is txt file, running command'
+            self.runCommand(event)
 
     def process_IN_CLOSE_NOWRITE(self, event):
         print "Close nowrite: ", event.pathname
@@ -244,7 +270,9 @@ class EventHandler(pyinotify.ProcessEvent):
 
     def process_IN_CREATE(self, event):
         print "Creating: ", event.pathname
-        self.runCommand(event)
+        logger.info("Creating: " + event.pathname)
+        if not os.path.isfile(event.pathname):
+           self.runCommand(event)
 
     def process_IN_DELETE(self, event):
         print "Deleteing: ", event.pathname
@@ -374,9 +402,6 @@ class WatcherDaemon(Daemon):
         else:
             return current_options | new_option
 
-def defineWatcherDirectory():
-    return os.path.expanduser('~') + '/.watcher'
-
 if __name__ == "__main__":
     watcher_dir = defineWatcherDirectory()
     try:
@@ -416,3 +441,4 @@ if __name__ == "__main__":
         print e
         os.remove(log)
         raise
+
